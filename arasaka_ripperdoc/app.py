@@ -4,9 +4,10 @@ ARASAKA RIPPERDOC // interface (PySide6 / Qt 6).
 from __future__ import annotations
 
 import sys
+import threading
 import time
 
-from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel,
                                QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QStackedWidget, QVBoxLayout, QWidget)
@@ -23,18 +24,26 @@ STATE_COLOR = {"ok": LINE, "aviso": QColor(150, 110, 20), "erro": QColor(120, 10
 STATE_TXT = {"ok": "NOMINAL", "aviso": "ATENCAO", "erro": "CRITICO"}
 
 
-class Task(QThread):
+class Task(QObject):
+    """Roda uma leitura demorada numa thread "daemon": fechar o app no meio nao trava nem derruba nada."""
     done = Signal(object)
 
     def __init__(self, fn, *args):
         super().__init__()
         self.fn, self.args = fn, args
 
-    def run(self):
+    def start(self):
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self):
         try:
-            self.done.emit(self.fn(*self.args))
+            r = self.fn(*self.args)
         except Exception as e:  # noqa: BLE001
-            self.done.emit(e)
+            r = e
+        try:
+            self.done.emit(r)           # sinal entre threads: chega na thread da interface
+        except RuntimeError:
+            pass                        # a janela ja foi fechada
 
 
 def card(title: str, state: str, text: str, actions: list[QPushButton] = ()) -> CutFrame:
